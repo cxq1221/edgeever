@@ -1,29 +1,23 @@
 {
-  "version": "1.90.0",
+  "version": "1.111.0",
   "changes": {
     "en-US": [
-      "Mind maps and flowcharts default to the Plain theme, with medium-gray emphasis. Diagrams without a saved theme use that look, and every diagram canvas uses the note editor surface.",
-      "The infographic editor opens without getting stuck, and updating its registry no longer breaks rendering.",
-      "The note header shows a GitHub link in place of the search button.",
-      "Copying a note as rich text shows a near-black success toast. The menu is now labeled Copy as Rich Text.",
-      "The mobile system info screen is more compact, and its text stays readable.",
-      "The settings tab for tokens is labeled API / MCP."
+      "Open the AI model picker with a single click when adding a model.",
+      "Clarify WorkBuddy connection and sign-in status in AI settings.",
+      "Let the built-in AI companion delete empty notebooks while protecting the inbox and notebooks containing notes.",
+      "Expand Web Clipper support for Facebook, Instagram, LinkedIn, Threads, Bluesky, Hacker News, V2EX, Xiaoyuzhou, Substack and Medium. Extension store availability follows store review."
     ],
     "zh-CN": [
-      "思维导图和流程图默认使用素简主题，强调色改为中灰。未保存主题的图也按素简显示，所有图的画布都使用笔记编辑器的底色。",
-      "信息图编辑器可以正常打开，更新注册表也不会再导致渲染失败。",
-      "笔记顶栏用 GitHub 链接替换了搜索按钮。",
-      "把笔记复制到公众号或博客后，会看到近黑的成功提示。菜单名称改为「复制到公众号 / 博客」。",
-      "手机上的系统信息页更紧凑，文字保持可读。",
-      "设置里的令牌页签改名为 API / MCP。"
+      "添加模型时，单击即可展开 AI 模型选择列表。",
+      "明确 AI 设置中 WorkBuddy 的连接状态与登录状态。",
+      "内置 AI 助手可以删除空笔记本，同时保护收件箱及包含笔记的笔记本。",
+      "网页剪藏扩展增强 Facebook、Instagram、LinkedIn、Threads、Bluesky、Hacker News、V2EX、小宇宙、Substack 和 Medium 的内容提取；扩展商店上架以商店审核结果为准。"
     ],
     "ja": [
-      "マインドマップとフローチャートの初期テーマを「素」にし、強調色をミディアムグレーにしました。テーマを保存していない図もこの見た目になり、図のキャンバスはノート編集画面の背景色を使います。",
-      "インフォグラフィック編集画面が途中で止まらなくなり、レジストリを更新しても描画に失敗しなくなりました。",
-      "ノート上部の検索ボタンを GitHub リンクに置き換えました。",
-      "書式付きでコピーすると、ほぼ黒の成功表示が出ます。メニュー名は「書式付きコピー」になりました。",
-      "モバイルのシステム情報画面をよりコンパクトにし、文字サイズは読みやすさを保ちました。",
-      "設定のトークンタブの名前を API / MCP に変更しました。"
+      "モデルを追加する際、シングルクリックで AI モデルの選択リストを開けるようになりました。",
+      "AI 設定で WorkBuddy の接続状態とログイン状態をより分かりやすく表示します。",
+      "内蔵 AI アシスタントで空のノートブックを削除できるようになりました。受信箱とノートを含むノートブックは保護されます。",
+      "Web Clipper の Facebook、Instagram、LinkedIn、Threads、Bluesky、Hacker News、V2EX、小宇宙、Substack、Medium への対応を拡充しました。拡張機能ストアでの公開はストア審査後となります。"
     ]
   }
 }

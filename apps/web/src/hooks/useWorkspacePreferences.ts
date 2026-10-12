@@ -3,26 +3,22 @@ import {
   DEFAULT_MEMO_LIST_WIDTH_PX,
   clampMemoListWidth,
   readDesktopFocusModePreference,
-  readEditorContentAlignmentPreference,
   readImageCompressionPreference,
   readMemoListWidthPreference,
   readNotebookSidebarCollapsedPreference,
   readShortcutSettingsPreference,
   writeDesktopFocusModePreference,
-  writeEditorContentAlignmentPreference,
   writeImageCompressionPreference,
   writeMemoListWidthPreference,
   writeNotebookSidebarCollapsedPreference,
   writeShortcutSettingsPreference,
   type ShortcutSettings,
-  type EditorContentAlignment,
 } from "@/lib/app-helpers";
 
 export const useWorkspacePreferences = () => {
   const [imageCompressionEnabled, setImageCompressionEnabled] = useState(readImageCompressionPreference);
   const [desktopFocusMode, setDesktopFocusModeState] = useState(readDesktopFocusModePreference);
   const [notebookSidebarCollapsed, setNotebookSidebarCollapsedState] = useState(readNotebookSidebarCollapsedPreference);
-  const [editorContentAlignment, setEditorContentAlignmentState] = useState(readEditorContentAlignmentPreference);
   const [shortcutSettings, setShortcutSettings] = useState<ShortcutSettings>(readShortcutSettingsPreference);
   const [memoListWidth, setMemoListWidthState] = useState(readMemoListWidthPreference);
 
@@ -39,11 +35,6 @@ export const useWorkspacePreferences = () => {
     writeNotebookSidebarCollapsedPreference(collapsed);
   }, []);
 
-  const setEditorContentAlignment = useCallback((alignment: EditorContentAlignment) => {
-    setEditorContentAlignmentState(alignment);
-    writeEditorContentAlignmentPreference(alignment);
-  }, []);
-
   const setMemoListWidth = useCallback((width: number) => {
     const nextWidth = clampMemoListWidth(width);
     setMemoListWidthState(nextWidth);
@@ -56,13 +47,11 @@ export const useWorkspacePreferences = () => {
 
   return {
     desktopFocusMode,
-    editorContentAlignment,
     imageCompressionEnabled,
     memoListWidth,
     notebookSidebarCollapsed,
     resetMemoListWidth,
     setDesktopFocusMode,
-    setEditorContentAlignment,
     setNotebookSidebarCollapsed,
     setImageCompressionEnabled,
     setMemoListWidth,

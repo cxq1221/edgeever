@@ -123,6 +123,59 @@ describe("public memo shares", () => {
     sqlite.close();
   });
 
+  test("publishes account prose with the public share", async () => {
+    const { sqlite, environment } = createDatabaseEnvironment();
+    sqlite.query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
+      .run("usr_author", "author", "hash");
+    sqlite.query("UPDATE memo_shares SET created_by = ? WHERE id = ?")
+      .run("usr_author", "share_source");
+    const app = new Hono();
+    app.use("*", async (c, next) => {
+      c.set("auth", { kind: "user", actorType: "user", actorId: "usr_author", username: "author", displayName: null, scopes: [], workspaceId: "ws_member", role: "owner" });
+      await next();
+    });
+    registerMemoShareRoutes(app);
+    registerPublicShareRoutes(app);
+
+    const before = await app.request(`/api/public/shares/${sourceToken}`, {}, environment);
+    expect((await before.json()).share.prose).toEqual({
+      fontSize: 16,
+      lineHeight: 1.65,
+      palette: "native",
+      customCss: "",
+      customColors: null,
+    });
+
+    const saved = await app.request("/api/v1/me/note-prose", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        fontSize: 18,
+        lineHeight: 2,
+        palette: "clay",
+        customCss: "p { color: red; font-size: 40px; line-height: 3; background: url(https://evil.test/a.png); }",
+      }),
+    }, environment);
+    expect(saved.status).toBe(200);
+    const body = await saved.json();
+    expect(body.fontSize).toBe(18);
+    expect(body.lineHeight).toBe(2);
+    expect(body.palette).toBe("clay");
+    expect(body.customCss).toContain("color: red");
+    expect(body.customCss).not.toContain("font-size");
+    expect(body.customCss).not.toContain("line-height");
+    expect(body.customCss).not.toContain("url(");
+
+    const published = await (await app.request(`/api/public/shares/${sourceToken}`, {}, environment)).json();
+    expect(published.share.prose).toMatchObject({
+      fontSize: 18,
+      lineHeight: 2,
+      palette: "clay",
+    });
+    expect(published.share.prose.customCss).not.toContain("font-size");
+    sqlite.close();
+  });
+
   test("saves a signed-in user's published note font", async () => {
     const { sqlite, environment } = createDatabaseEnvironment();
     sqlite.query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
@@ -281,6 +334,55 @@ const readCookieValue = (response, name) => {
   const part = header.split(";").find((item) => item.trim().startsWith(prefix));
   return part ? part.trim().slice(prefix.length) : "";
 };
+
+describe("memo share management", () => {
+  test("lists only live shares from the signed-in workspace without exposing passwords", async () => {
+    const { sqlite, environment } = createDatabaseEnvironment();
+    sqlite.query("INSERT INTO workspaces (id, name, is_personal) VALUES (?, ?, 1)").run("ws_other", "Other workspace");
+    sqlite.query("INSERT INTO notebooks (id, workspace_id, name) VALUES (?, ?, ?)").run("nb_other", "ws_other", "Private");
+    sqlite.query("INSERT INTO memos (id, workspace_id, notebook_id, title) VALUES (?, ?, ?, ?)").run("memo_other", "ws_other", "nb_other", "Other note");
+    sqlite.query("INSERT INTO memo_shares (id, memo_id, workspace_id, token) VALUES (?, ?, ?, ?)").run("share_other", "memo_other", "ws_other", "o".repeat(43));
+    sqlite.query("UPDATE memo_shares SET password_hash = ? WHERE memo_id = ?").run("private-hash", "memo_source");
+    sqlite.query("UPDATE memos SET is_deleted = 1 WHERE id = ?").run("memo_target");
+
+    const response = await createShareApp(environment).request("/api/v1/memo-shares", {}, environment);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await response.json();
+    expect(body.nextOffset).toBeNull();
+    expect(body.shares).toEqual([expect.objectContaining({
+      memoId: "memo_source",
+      memoTitle: "Source",
+      notebookId: "nb_member",
+      notebookName: "Inbox",
+      passwordProtected: true,
+    })]);
+    expect(JSON.stringify(body)).not.toContain("private-hash");
+    expect(JSON.stringify(body)).not.toContain("memo_other");
+    sqlite.close();
+  });
+
+  test("paginates shares and requires an interactive user session", async () => {
+    const { sqlite, environment } = createDatabaseEnvironment();
+    const app = createShareApp(environment);
+    const first = await app.request("/api/v1/memo-shares?limit=1", {}, environment);
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    expect(firstBody.shares).toHaveLength(1);
+    expect(firstBody.nextOffset).toBe(1);
+    const second = await app.request(`/api/v1/memo-shares?limit=1&offset=${firstBody.nextOffset}`, {}, environment);
+    const secondBody = await second.json();
+    expect(secondBody.shares).toHaveLength(1);
+    expect(secondBody.shares[0].memoId).not.toBe(firstBody.shares[0].memoId);
+    expect(secondBody.nextOffset).toBeNull();
+
+    const unauthenticated = new Hono();
+    registerMemoShareRoutes(unauthenticated);
+    const denied = await unauthenticated.request("/api/v1/memo-shares", {}, environment);
+    expect(denied.status).toBe(403);
+    sqlite.close();
+  });
+});
 
 describe("password-protected memo shares", () => {
   test("keeps existing shares public until a password is enabled", async () => {

@@ -1,4 +1,4 @@
-import { collectMemoLinkIds, isPdfAttachment, MemoShareUpdateSchema, NoteBodyFontUpdateSchema, parsePublishedNoteBodyFont, PublicShareUnlockSchema, resolveMemoContentDoc, resolvePlayableMediaMimeType, type MemoShare, type PublicMemoShare, type TiptapDoc } from "@edgeever/shared";
+import { accountNoteProseFromRow, collectMemoLinkIds, isPdfAttachment, MemoShareUpdateSchema, NoteBodyFontUpdateSchema, NoteProseUpdateSchema, parsePublishedNoteBodyFont, publicNoteProseFromAccount, PublicShareUnlockSchema, resolveMemoContentDoc, resolvePlayableMediaMimeType, sanitizeNoteProseCss, type AccountNoteProse, type ManagedMemoShare, type MemoShare, type NoteProseAccountRow, type PublicMemoShare, type TiptapDoc } from "@edgeever/shared";
 import { zValidator } from "@hono/zod-validator";
 import type { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
@@ -32,6 +32,11 @@ type MemoShareRow = {
   updated_at: string;
   password_hash: string | null;
 };
+type ManagedMemoShareRow = MemoShareRow & {
+  title: string | null;
+  notebook_id: string;
+  notebook_name: string | null;
+};
 type PublicMemoShareRow = {
   workspace_id: string;
   title: string | null;
@@ -41,7 +46,7 @@ type PublicMemoShareRow = {
   updated_at: string;
   password_hash: string | null;
   note_body_font: string | null;
-};
+} & NoteProseAccountRow;
 type ShareGateRow = {
   workspace_id: string;
   password_hash: string | null;
@@ -129,6 +134,23 @@ const loadShareGate = async (c: AppContext, token: string) =>
 const selectMemoShareSql = `SELECT memo_id, token, created_at, updated_at, password_hash
   FROM memo_shares WHERE memo_id = ? AND workspace_id = ?`;
 
+const NOTE_PROSE_COLUMNS = `note_prose_font_size, note_prose_line_height, note_prose_palette, note_prose_custom_css, note_prose_custom_colors`;
+
+const presentAccountNoteProse = (row: NoteProseAccountRow | null): AccountNoteProse => {
+  const account = accountNoteProseFromRow(row);
+  return {
+    ...account,
+    customCss: account.customCss === null ? null : sanitizeNoteProseCss(account.customCss),
+  };
+};
+
+const loadAccountNoteProse = async (c: AppContext, actorId: string) => {
+  const row = await c.env.storage.db.prepare(
+    `SELECT ${NOTE_PROSE_COLUMNS} FROM users WHERE id = ?`
+  ).bind(actorId).first<NoteProseAccountRow>();
+  return row ? presentAccountNoteProse(row) : null;
+};
+
 export const registerPublicShareRoutes = (app: Hono<AppEnv>) => {
   app.get("/api/public/shares/:token", async (c) => {
     const token = normalizeShareToken(c.req.param("token"));
@@ -136,7 +158,8 @@ export const registerPublicShareRoutes = (app: Hono<AppEnv>) => {
 
     const row = await c.env.storage.db.prepare(
       `SELECT ms.workspace_id, m.title, mc.content_json, mc.content_markdown, m.tags_json, m.updated_at, ms.password_hash,
-              u.note_body_font
+              u.note_body_font, u.note_prose_font_size, u.note_prose_line_height, u.note_prose_palette,
+              u.note_prose_custom_css, u.note_prose_custom_colors
        FROM memo_shares ms
        INNER JOIN memos m ON m.id = ms.memo_id AND m.workspace_id = ms.workspace_id
        INNER JOIN memo_contents mc ON mc.memo_id = m.id
@@ -174,6 +197,7 @@ export const registerPublicShareRoutes = (app: Hono<AppEnv>) => {
       updatedAt: row.updated_at,
       memoShareTokens,
       bodyFont: parsePublishedNoteBodyFont(row.note_body_font),
+      prose: publicNoteProseFromAccount(presentAccountNoteProse(row)),
     };
     c.header("Cache-Control", "private, no-store");
     c.header("X-Robots-Tag", "noindex, nofollow, noarchive");
@@ -277,6 +301,34 @@ export const registerPublicShareRoutes = (app: Hono<AppEnv>) => {
 };
 
 export const registerMemoShareRoutes = (app: Hono<AppEnv>) => {
+  app.get("/api/v1/memo-shares", async (c) => {
+    const denied = requireUser(c);
+    if (denied) return denied;
+
+    const parsedLimit = Number(c.req.query("limit") ?? 50);
+    const parsedOffset = Number(c.req.query("offset") ?? 0);
+    const limit = Number.isSafeInteger(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 50;
+    const offset = Number.isSafeInteger(parsedOffset) ? Math.min(1_000_000, Math.max(0, parsedOffset)) : 0;
+    const rows = await c.env.storage.db.prepare(
+      `SELECT ms.memo_id, ms.token, ms.created_at, ms.updated_at, ms.password_hash,
+              m.title, m.notebook_id, n.name AS notebook_name
+       FROM memo_shares ms
+       INNER JOIN memos m ON m.id = ms.memo_id AND m.workspace_id = ms.workspace_id
+       LEFT JOIN notebooks n ON n.id = m.notebook_id AND n.workspace_id = m.workspace_id
+       WHERE ms.workspace_id = ? AND m.is_deleted = 0
+       ORDER BY ms.updated_at DESC, ms.id DESC
+       LIMIT ? OFFSET ?`
+    ).bind(getWorkspaceId(c), limit + 1, offset).all<ManagedMemoShareRow>();
+    const shares: ManagedMemoShare[] = rows.results.slice(0, limit).map((row) => ({
+      ...mapMemoShare(row),
+      memoTitle: row.title,
+      notebookId: row.notebook_id,
+      notebookName: row.notebook_name,
+    }));
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ shares, nextOffset: rows.results.length > limit ? offset + limit : null });
+  });
+
   app.put("/api/v1/me/note-body-font", zValidator("json", NoteBodyFontUpdateSchema), async (c) => {
     const denied = requireUser(c);
     if (denied) return denied;
@@ -287,6 +339,54 @@ export const registerMemoShareRoutes = (app: Hono<AppEnv>) => {
       `UPDATE users SET note_body_font = ?, updated_at = ? WHERE id = ?`
     ).bind(bodyFont, isoNow(), actorId).run();
     return c.json({ bodyFont });
+  });
+
+  app.get("/api/v1/me/note-prose", async (c) => {
+    const denied = requireUser(c);
+    if (denied) return denied;
+    const actorId = c.get("auth").actorId;
+    if (!actorId) return apiError(c, "note_prose_unavailable", "This session cannot read note prose settings", 403);
+    const prose = await loadAccountNoteProse(c, actorId);
+    if (!prose) return notFound(c, "User not found");
+    return c.json(prose);
+  });
+
+  app.put("/api/v1/me/note-prose", zValidator("json", NoteProseUpdateSchema), async (c) => {
+    const denied = requireUser(c);
+    if (denied) return denied;
+    const actorId = c.get("auth").actorId;
+    if (!actorId) return apiError(c, "note_prose_unavailable", "This session cannot update note prose settings", 403);
+    const patch = c.req.valid("json");
+    const assignments: string[] = [];
+    const values: Array<string | number | null> = [];
+    if (patch.fontSize !== undefined) {
+      assignments.push("note_prose_font_size = ?");
+      values.push(patch.fontSize);
+    }
+    if (patch.lineHeight !== undefined) {
+      assignments.push("note_prose_line_height = ?");
+      values.push(patch.lineHeight === null ? null : String(patch.lineHeight));
+    }
+    if (patch.palette !== undefined) {
+      assignments.push("note_prose_palette = ?");
+      values.push(patch.palette);
+    }
+    if (patch.customCss !== undefined) {
+      assignments.push("note_prose_custom_css = ?");
+      values.push(patch.customCss === null ? null : sanitizeNoteProseCss(patch.customCss));
+    }
+    if (patch.customColors !== undefined) {
+      assignments.push("note_prose_custom_colors = ?");
+      values.push(patch.customColors === null ? null : JSON.stringify(patch.customColors));
+    }
+    assignments.push("updated_at = ?");
+    values.push(isoNow(), actorId);
+    await c.env.storage.db.prepare(
+      `UPDATE users SET ${assignments.join(", ")} WHERE id = ?`
+    ).bind(...values).run();
+    const prose = await loadAccountNoteProse(c, actorId);
+    if (!prose) return notFound(c, "User not found");
+    return c.json(prose);
   });
 
   app.get("/api/v1/memos/:id/share", async (c) => {
